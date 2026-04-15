@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
       "Agent",
@@ -31,6 +32,7 @@
       "WebFetch"
     ],
     "deny": [
+      // ===== DESTRUCTIVE SHELL COMMANDS =====
       "Bash(rm -rf /)",
       "Bash(rm -rf ~)",
       "Bash(rm -rf /*)",
@@ -48,6 +50,7 @@
       "Bash(sudo rm -r -f /*)",
       "Bash(sudo rm -r -f ~/)",
 
+      // ===== VIRTUAL ENVIRONMENTS =====
       "Read(./.venv/**)",
       "Glob(./.venv/**)",
       "Grep(./.venv/**)",
@@ -60,6 +63,7 @@
       "Glob(./**/.venv/**)",
       "Grep(./**/.venv/**)",
 
+      // ===== NODE MODULES =====
       "Read(./node_modules/**)",
       "Glob(./node_modules/**)",
       "Grep(./node_modules/**)",
@@ -69,6 +73,7 @@
       "Glob(./**/node_modules/**)",
       "Grep(./**/node_modules/**)",
 
+      // ===== SSH KEYS & CREDENTIALS =====
       "Read(~/.ssh/**)",
       "Glob(~/.ssh/**)",
       "Grep(~/.ssh/**)",
@@ -79,6 +84,7 @@
       "Edit(~/.gnupg/**)",
       "Write(~/.gnupg/**)",
 
+      // ===== ENV FILES & SECRETS =====
       "Read(./.env)",
       "Read(./.env.*)",
       "Read(./.env.local)",
@@ -100,6 +106,7 @@
       "Read(./**/*.keystore)",
       "Read(./**/*.jks)",
 
+      // ===== GIT INTERNALS & WORKTREES =====
       "Read(./.git/**)",
       "Glob(./.git/**)",
       "Grep(./.git/**)",
@@ -108,6 +115,7 @@
       "Read(./.git/worktrees/**)",
       "EnterWorktree(./.git/worktrees/**)",
 
+      // ===== BUILD OUTPUTS & CACHES =====
       "Read(./build/**)",
       "Glob(./build/**)",
       "Grep(./build/**)",
@@ -136,6 +144,7 @@
       "Read(./*.egg-info/**)",
       "Glob(./*.egg-info/**)",
 
+      // ===== PACKAGE MANAGER CACHES =====
       "Read(./.yarn/cache/**)",
       "Glob(./.yarn/cache/**)",
       "Read(./.pnpm-store/**)",
@@ -147,6 +156,7 @@
       "Read(~/.pnpm-store/**)",
       "Read(~/.cache/pip/**)",
 
+      // ===== IDE & EDITOR CONFIGS =====
       "Read(./.idea/**)",
       "Glob(./.idea/**)",
       "Edit(./.idea/**)",
@@ -158,21 +168,25 @@
       "Read(./*.swo)",
       "Read(./**/*.swo)",
 
+      // ===== OS FILES =====
       "Read(./.DS_Store)",
       "Read(./**/.DS_Store)",
       "Read(./Thumbs.db)",
       "Read(./**/Thumbs.db)",
 
+      // ===== DOCKER VOLUMES & HEAVY DIRS =====
       "Read(./docker-data/**)",
       "Glob(./docker-data/**)",
       "Read(./.docker/**)",
       "Glob(./.docker/**)",
 
+      // ===== LOG FILES =====
       "Read(./**/*.log)",
       "Glob(./**/*.log)",
       "Read(./logs/**)",
       "Glob(./logs/**)",
 
+      // ===== TERRAFORM / INFRA STATE =====
       "Read(./.terraform/**)",
       "Glob(./.terraform/**)",
       "Read(./terraform.tfstate)",
@@ -180,6 +194,7 @@
       "Read(./**/*.tfstate)",
       "Read(./**/*.tfstate.backup)",
 
+      // ===== COVERAGE & TEST ARTIFACTS =====
       "Read(./coverage/**)",
       "Glob(./coverage/**)",
       "Read(./.nyc_output/**)",
@@ -187,6 +202,7 @@
       "Read(./htmlcov/**)",
       "Glob(./htmlcov/**)",
 
+      // ===== MISC SENSITIVE =====
       "Read(~/.aws/**)",
       "Read(~/.azure/**)",
       "Read(~/.gcloud/**)",
