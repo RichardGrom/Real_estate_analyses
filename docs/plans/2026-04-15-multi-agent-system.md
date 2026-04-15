@@ -4,7 +4,7 @@
 
 **Goal:** Build a fully automated multi-agent real estate investment analysis system where the user inputs a location and receives a React web dashboard with capital value growth metrics, STR yield analysis, and per-property buy/skip recommendations.
 
-**Architecture:** Two-layer system — outer layer uses Claude Code native skills/agents (`.claude/`) to orchestrate work in a fan-out/fan-in pattern; inner layer is a FastAPI backend + React frontend. Agents coordinate, Python computes, React displays.
+**Architecture:** Two-layer system — outer layer uses Claude Code native skills/agents (`.claude/`) to orchestrate work in a fan-out/fan-in pattern; inner layer is a FastAPI backend (async) + React frontend. Agents coordinate, Python computes, React displays.
 
 **Tech Stack:**
 - Backend: Python 3.11, FastAPI, Uvicorn, uv (dependency manager), requests, python-dotenv, pandas
@@ -14,35 +14,47 @@
 
 **Standards:** Follow `0_instructions/.claude/CLAUDE.md` — SOLID, < 20 lines per function, type hints (Python 3.10+), uv exclusively, no pip.
 
+**Two execution modes (by design):**
+- `claude "analyze Marbella"` → full pipeline including market trends (WebSearch via Claude agent)
+- `http://localhost:5173` → property analysis only (no market trends — Python can't do WebSearch)
+- Dashboard clearly labels which data is available in each mode
+
 ---
 
 ## Directory Structure (target state)
 
 ```
 Real_estate_analyses/
-├── CLAUDE.md                        (update)
+├── CLAUDE.md                        (update in Task 0)
 ├── 0_instructions/                  (existing — standards reference)
+├── .env                             (stays at root — loaded by backend/src/config.py)
+├── .gitignore                       (update in Task 0)
 │
 ├── backend/
-│   ├── pyproject.toml               (uv managed)
+│   ├── pyproject.toml               (uv managed — replaces root requirements.txt)
 │   ├── .venv/                       (uv venv — gitignored)
-│   ├── .env                         (existing — move here)
 │   └── src/
-│       ├── main.py                  # FastAPI app entry point
-│       ├── config.py                # env, criteria constants
+│       ├── main.py                  # FastAPI app — async with BackgroundTasks
+│       ├── config.py                # env, criteria constants — loads ../.env
 │       ├── scrapers/
 │       │   ├── __init__.py
 │       │   └── idealista.py         # Apify REST client
 │       ├── analyzers/
 │       │   ├── __init__.py
 │       │   ├── str_revenue.py       # AirROI REST client (parallel)
-│       │   ├── roi.py               # gross/net yield, investment score
-│       │   └── market.py            # trend analysis utils
+│       │   └── roi.py               # gross/net yield, investment score
 │       ├── filters/
 │       │   ├── __init__.py
 │       │   └── property_filter.py   # hard criteria enforcement
 │       └── reporters/
-│           └── pipeline.py          # orchestrates full analysis run
+│           └── pipeline.py          # sync pipeline — called in thread pool
+│   └── tests/
+│       ├── conftest.py              # sys.path setup
+│       ├── test_config.py
+│       ├── test_idealista.py
+│       ├── test_str_revenue.py
+│       ├── test_roi.py
+│       └── test_filter.py
 │
 ├── frontend/
 │   ├── package.json                 (npm)
@@ -57,10 +69,9 @@ Real_estate_analyses/
 │       │   ├── MarketOverview.tsx   # lightweight-charts price trend
 │       │   ├── PropertyTable.tsx    # sortable shadcn-ui table
 │       │   ├── YieldChart.tsx       # lightweight-charts bar chart
-│       │   ├── RiskIndicators.tsx
-│       │   └── PropertyCard.tsx
+│       │   └── RiskIndicators.tsx
 │       ├── hooks/
-│       │   └── useAnalysis.ts       # fetch + state management
+│       │   └── useAnalysis.ts       # fetch + polling state management
 │       └── types/
 │           └── analysis.ts          # shared TypeScript types
 │
@@ -68,7 +79,7 @@ Real_estate_analyses/
 │   └── data/                        # JSON handoff files between agents
 │
 ├── .claude/
-│   ├── settings.json
+│   ├── settings.json                (exists ✓)
 │   ├── skills/
 │   │   └── analyze-market/
 │   │       └── SKILL.md             # orchestrator skill
@@ -80,12 +91,9 @@ Real_estate_analyses/
 │       ├── property-filter.md
 │       └── report-builder.md
 │
-└── tests/
-    ├── test_config.py
-    ├── test_idealista.py
-    ├── test_str_revenue.py
-    ├── test_roi.py
-    └── test_filter.py
+└── docs/
+    └── plans/
+        └── 2026-04-15-multi-agent-system.md  (this file ✓)
 ```
 
 ---
@@ -93,18 +101,132 @@ Real_estate_analyses/
 ## Data Flow
 
 ```
-Apify → raw_listings.json
-                           ↘
-AirROI (parallel) →         → roi_metrics.json → filtered_properties.json → FastAPI → React
-                           ↗
-WebSearch → market_trends.json
+                    ┌─ Apify → listings
+FastAPI endpoint ───┤─ AirROI (parallel) → str_revenue   →  roi → filter → JSON response
+                    └─ (no market data — Python only)
+
+Claude agent ───────┌─ Apify → listings
+"analyze Marbella"  ├─ AirROI (parallel) → str_revenue   →  roi → filter
+                    └─ WebSearch → market_trends.json     → full dashboard
 ```
 
 **FastAPI endpoints:**
-- `POST /api/analysis` — trigger full analysis for a location
-- `GET /api/analysis/{run_id}` — poll status + results
-- `GET /api/analysis/{run_id}/properties` — filtered properties
-- `GET /api/analysis/{run_id}/market` — market trends data
+- `POST /api/analysis` — starts analysis as background task, returns `{run_id, status: "running"}`
+- `GET /api/analysis/{run_id}` — poll status: `running | completed | failed` + results when done
+- `GET /api/health` — health check
+
+---
+
+## Prerequisites (before Task 1)
+
+```bash
+# Install uv if not present
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Set git identity (fixes commit warnings)
+git config user.name "Richard Grom"
+git config user.email "your@email.com"
+```
+
+---
+
+## Phase 0 — Cleanup & CLAUDE.md Update
+
+### Task 0: Remove orphan files, update gitignore and CLAUDE.md
+
+**Files:**
+- Delete: `requirements.txt` (replaced by `backend/pyproject.toml`)
+- Modify: `.gitignore`
+- Modify: `CLAUDE.md`
+
+**Step 1:** Remove `requirements.txt`:
+```bash
+git rm requirements.txt
+```
+
+**Step 2:** Replace `.gitignore` with:
+```
+# Environment
+.env
+.env.*
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+
+# Build / outputs
+outputs/data/*.json
+
+# OS
+.DS_Store
+Thumbs.db
+```
+
+**Step 3:** Update `CLAUDE.md` to reflect current architecture:
+```markdown
+# Real Estate Investment Analyzer
+
+## Purpose
+Multi-agent system for scraping Spanish real estate listings + STR revenue analysis
+for investment decisions on Costa del Sol.
+
+## Standards
+Follow `0_instructions/.claude/CLAUDE.md` for all coding standards.
+Python: uv exclusively. Frontend: React + shadcn-ui + lightweight-charts.
+
+## Architecture
+- Backend: FastAPI (Python 3.11, uv) in `backend/`
+- Frontend: React + Vite + Tailwind CSS in `frontend/`
+- Agents: `.claude/agents/` — 6 sub-agents orchestrated by `.claude/skills/analyze-market/`
+
+## Running
+```bash
+# Backend
+cd backend && uv run uvicorn src.main:app --reload
+
+# Frontend
+cd frontend && npm run dev
+
+# Full pipeline via Claude Code
+claude "analyze Marbella"
+```
+
+## Two execution modes
+- Via React UI (`http://localhost:5173`): property analysis only
+- Via Claude Code (`claude "analyze Marbella"`): full pipeline including market trends
+
+## Investment Criteria (Costa del Sol)
+| Parameter       | Value         |
+|-----------------|---------------|
+| Max price       | €320,000      |
+| Min area        | 70 m² + terrace |
+| Min net yield   | 5%            |
+| VFT license     | required      |
+| Ground floor    | forbidden     |
+
+## API Keys
+Loaded from `.env` at project root — never hardcode.
+- APIFY_TOKEN
+- AIRROI_API_KEY
+
+## Agent output convention
+All agents write to `outputs/data/*.json`.
+`filtered_properties.json` is the canonical dataset — only it feeds the dashboard.
+Error log format: `logger.error("Context: %s | Status: %s | Body: %s", ctx, status, body)`
+```
+
+**Step 4:** Commit:
+```bash
+git add -A
+git commit -m "chore: remove requirements.txt, update .gitignore and CLAUDE.md"
+```
 
 ---
 
@@ -115,8 +237,8 @@ WebSearch → market_trends.json
 **Files:**
 - Create: `backend/pyproject.toml`
 - Create: `backend/src/__init__.py` and all sub-package `__init__.py` files
-- Create: `outputs/data/.gitkeep`, `outputs/reports/.gitkeep`
-- Modify: `.gitignore` (add `.venv/`, `outputs/data/*.json`)
+- Create: `backend/tests/conftest.py`
+- Create: `outputs/data/.gitkeep`
 
 **Step 1:** Create `backend/pyproject.toml`:
 ```toml
@@ -135,45 +257,39 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
-    "pytest-asyncio>=0.24.0",
     "httpx>=0.27.0",
 ]
 
-[build-system]
-requires = ["setuptools>=75.0"]
-build-backend = "setuptools.backends.legacy:build"
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
 ```
+
+> Note: No `[build-system]` section — this is an application, not a library.
 
 **Step 2:** Set up uv environment:
 ```bash
 cd backend
 uv venv
 source .venv/bin/activate
-uv sync
+uv sync --extra dev
 ```
 Expected: `.venv/` created, all packages installed.
 
-**Step 3:** Create all `__init__.py` files (empty) for:
-`backend/src/`, `backend/src/scrapers/`, `backend/src/analyzers/`, `backend/src/filters/`, `backend/src/reporters/`
-
-**Step 4:** Create `outputs/data/.gitkeep`, `outputs/reports/.gitkeep`
-
-**Step 5:** Update `.gitignore`:
+**Step 3:** Create `backend/tests/conftest.py`:
+```python
+# Ensures `from src.X import Y` works in all tests
 ```
-.env
-.venv/
-__pycache__/
-*.pyc
-*.pyo
-.DS_Store
-outputs/data/*.json
-node_modules/
-dist/
-```
+(Empty — `pythonpath = ["."]` in pyproject.toml handles path.)
+
+**Step 4:** Create all empty `__init__.py`:
+`backend/src/`, `backend/src/scrapers/`, `backend/src/analyzers/`, `backend/src/filters/`, `backend/src/reporters/`, `backend/tests/`
+
+**Step 5:** Create `outputs/data/.gitkeep`
 
 **Step 6:** Commit:
 ```bash
-git add backend/ outputs/ .gitignore
+git add backend/ outputs/
 git commit -m "chore: scaffold backend with uv, pyproject.toml, package structure"
 ```
 
@@ -183,40 +299,43 @@ git commit -m "chore: scaffold backend with uv, pyproject.toml, package structur
 
 **Files:**
 - Create: `backend/src/config.py`
-- Create: `tests/test_config.py`
+- Create: `backend/tests/test_config.py`
 
-**Step 1:** Write failing test `tests/test_config.py`:
+**Step 1:** Write failing test `backend/tests/test_config.py`:
 ```python
-import os, pytest
-os.environ["APIFY_TOKEN"] = "test_token"
-os.environ["AIRROI_API_KEY"] = "test_key"
+import os
+import pytest
 
-def test_config_loads():
-    from backend.src.config import Config
+def test_config_loads(monkeypatch):
+    monkeypatch.setenv("APIFY_TOKEN", "test_token")
+    monkeypatch.setenv("AIRROI_API_KEY", "test_key")
+    from src.config import Config
     cfg = Config()
     assert cfg.apify_token == "test_token"
     assert cfg.airroi_api_key == "test_key"
     assert cfg.criteria.max_price_eur == 320_000
 
-def test_config_raises_on_missing_key():
-    saved = os.environ.pop("APIFY_TOKEN")
+def test_config_raises_on_missing_key(monkeypatch):
+    monkeypatch.delenv("APIFY_TOKEN", raising=False)
+    monkeypatch.setenv("AIRROI_API_KEY", "test_key")
+    from importlib import reload
+    import src.config as m
+    reload(m)
     with pytest.raises(ValueError, match="APIFY_TOKEN"):
-        from importlib import reload
-        import backend.src.config as m
-        reload(m)
         m.Config()
-    os.environ["APIFY_TOKEN"] = saved
 ```
 
-**Step 2:** Run: `cd backend && uv run pytest ../tests/test_config.py -v` → FAIL
+**Step 2:** Run: `cd backend && uv run pytest tests/test_config.py -v` → FAIL
 
 **Step 3:** Implement `backend/src/config.py`:
 ```python
 from dataclasses import dataclass
+from pathlib import Path
 from dotenv import load_dotenv
 import os
 
-load_dotenv()
+# Load .env from project root (one level above backend/)
+load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 
 @dataclass(frozen=True)
@@ -247,7 +366,10 @@ class Config:
         return value
 ```
 
-**Step 4:** Run: `cd backend && uv run pytest ../tests/test_config.py -v` → PASS
+> Key fix: `load_dotenv(Path(__file__).parent.parent.parent / ".env")` — explicitly
+> points to root `.env` regardless of where the process is started from.
+
+**Step 4:** Run: `cd backend && uv run pytest tests/test_config.py -v` → PASS
 
 **Step 5:** Commit: `git commit -m "feat: add Config with typed investment criteria and env validation"`
 
@@ -257,13 +379,13 @@ class Config:
 
 **Files:**
 - Create: `backend/src/scrapers/idealista.py`
-- Create: `tests/test_idealista.py`
+- Create: `backend/tests/test_idealista.py`
 
-**Step 1:** Write failing test `tests/test_idealista.py`:
+**Step 1:** Write failing test `backend/tests/test_idealista.py`:
 ```python
 import pytest
 from unittest.mock import MagicMock
-from backend.src.scrapers.idealista import IdealistaScraper, ScraperError
+from src.scrapers.idealista import IdealistaScraper, ScraperError
 
 def test_normalize_listing_maps_fields():
     scraper = IdealistaScraper.__new__(IdealistaScraper)
@@ -287,7 +409,7 @@ def test_handle_response_raises_on_error():
     assert exc.value.status_code == 403
 ```
 
-**Step 2:** Run: `cd backend && uv run pytest ../tests/test_idealista.py -v` → FAIL
+**Step 2:** Run: `cd backend && uv run pytest tests/test_idealista.py -v` → FAIL
 
 **Step 3:** Implement `backend/src/scrapers/idealista.py`:
 ```python
@@ -296,7 +418,7 @@ import time
 
 import requests
 
-from backend.src.config import Config
+from src.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -362,7 +484,8 @@ class IdealistaScraper:
 
     def _handle_response(self, r: requests.Response, actor: str, url: str) -> None:
         if not r.ok:
-            logger.error("Scraper | actor=%s url=%s status=%s body=%s", actor, url, r.status_code, r.text[:500])
+            logger.error("Scraper | actor=%s url=%s status=%s body=%s",
+                         actor, url, r.status_code, r.text[:500])
             raise ScraperError(actor, url, r.status_code, r.text[:500])
 
     def _normalize_listing(self, raw: dict) -> dict:
@@ -387,7 +510,7 @@ class IdealistaScraper:
         }
 ```
 
-**Step 4:** Run: `cd backend && uv run pytest ../tests/test_idealista.py -v` → PASS
+**Step 4:** Run: `cd backend && uv run pytest tests/test_idealista.py -v` → PASS
 
 **Step 5:** Commit: `git commit -m "feat: add Idealista/Apify scraper with typed error handling"`
 
@@ -399,18 +522,20 @@ class IdealistaScraper:
 
 **Files:**
 - Create: `backend/src/analyzers/str_revenue.py`
-- Create: `tests/test_str_revenue.py`
+- Create: `backend/tests/test_str_revenue.py`
 
-**Step 1:** Write failing test:
+**Step 1:** Write failing test `backend/tests/test_str_revenue.py`:
 ```python
 from unittest.mock import patch
-from backend.src.analyzers.str_revenue import AirROIAnalyzer
+from src.analyzers.str_revenue import AirROIAnalyzer
 
 def test_returns_revenue_estimate():
     analyzer = AirROIAnalyzer.__new__(AirROIAnalyzer)
     mock_resp = {"annual_revenue": 28500, "occupancy_rate": 0.72, "adr": 110}
     with patch.object(analyzer, "_call_api", return_value=mock_resp):
-        result = analyzer.analyze_property({"id": "p1", "lat": 36.5, "lng": -4.8, "rooms": 2, "size_m2": 80})
+        result = analyzer.analyze_property(
+            {"id": "p1", "lat": 36.5, "lng": -4.8, "rooms": 2, "size_m2": 80}
+        )
     assert result["annual_revenue_eur"] == 28500
     assert result["property_id"] == "p1"
     assert result["error"] is None
@@ -418,12 +543,14 @@ def test_returns_revenue_estimate():
 def test_handles_api_error_gracefully():
     analyzer = AirROIAnalyzer.__new__(AirROIAnalyzer)
     with patch.object(analyzer, "_call_api", side_effect=Exception("timeout")):
-        result = analyzer.analyze_property({"id": "p1", "lat": 36.5, "lng": -4.8, "rooms": 2, "size_m2": 80})
+        result = analyzer.analyze_property(
+            {"id": "p1", "lat": 36.5, "lng": -4.8, "rooms": 2, "size_m2": 80}
+        )
     assert result["annual_revenue_eur"] is None
     assert result["error"] == "timeout"
 ```
 
-**Step 2:** Run: `cd backend && uv run pytest ../tests/test_str_revenue.py -v` → FAIL
+**Step 2:** Run: `cd backend && uv run pytest tests/test_str_revenue.py -v` → FAIL
 
 **Step 3:** Implement `backend/src/analyzers/str_revenue.py`:
 ```python
@@ -432,7 +559,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-from backend.src.config import Config
+from src.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -496,7 +623,7 @@ class AirROIAnalyzer:
         }
 ```
 
-**Step 4:** Run: `cd backend && uv run pytest ../tests/test_str_revenue.py -v` → PASS
+**Step 4:** Run: `cd backend && uv run pytest tests/test_str_revenue.py -v` → PASS
 
 **Step 5:** Commit: `git commit -m "feat: add AirROI STR analyzer with parallel batch and graceful error handling"`
 
@@ -506,11 +633,12 @@ class AirROIAnalyzer:
 
 **Files:**
 - Create: `backend/src/analyzers/roi.py`
-- Create: `tests/test_roi.py`
+- Create: `backend/tests/test_roi.py`
 
-**Step 1:** Write failing test:
+**Step 1:** Write failing test `backend/tests/test_roi.py`:
 ```python
-from backend.src.analyzers.roi import ROIAnalyzer
+import pytest
+from src.analyzers.roi import ROIAnalyzer
 
 def test_gross_yield_calculation():
     analyzer = ROIAnalyzer()
@@ -534,7 +662,7 @@ def test_none_yield_when_revenue_missing():
 
 **Step 3:** Implement `backend/src/analyzers/roi.py`:
 ```python
-from backend.src.config import Config
+from src.config import Config
 
 
 class ROIAnalyzer:
@@ -547,11 +675,11 @@ class ROIAnalyzer:
 
     def compute_property(self, listing: dict, str_est: dict) -> dict:
         price = listing["price_eur"]
-        acquisition_cost = round(price * (1 + self._cfg.TRANSACTION_COST_PCT), 2)
+        acq = round(price * (1 + self._cfg.TRANSACTION_COST_PCT), 2)
         revenue = str_est.get("annual_revenue_eur")
         if revenue is None:
-            return self._no_revenue_result(listing["id"], price, acquisition_cost, str_est.get("error"))
-        return self._full_result(listing, str_est, price, acquisition_cost, revenue)
+            return self._no_revenue_result(listing["id"], price, acq, str_est.get("error"))
+        return self._full_result(listing, str_est, price, acq, revenue)
 
     def _no_revenue_result(self, pid: str, price: float, acq: float, error: str | None) -> dict:
         return {
@@ -593,37 +721,46 @@ class ROIAnalyzer:
 
 ---
 
-## Phase 3 — Filter + API
+## Phase 3 — Filter + Async API
 
 ### Task 6: `backend/src/filters/property_filter.py`
 
 **Files:**
 - Create: `backend/src/filters/property_filter.py`
-- Create: `tests/test_filter.py`
+- Create: `backend/tests/test_filter.py`
 
-**Step 1:** Write failing test:
+**Step 1:** Write failing test `backend/tests/test_filter.py`:
 ```python
-from backend.src.filters.property_filter import PropertyFilter
+from src.filters.property_filter import PropertyFilter
 
 BASE = {"id": "p1", "price_eur": 280000, "size_m2": 82, "floor": "2",
         "floor_label": "2ª planta", "terrace_m2": 15, "description": "con terraza"}
-STR = {"property_id": "p1", "annual_revenue_eur": 28500, "error": None}
-ROI = {"property_id": "p1", "net_yield_pct": 6.2, "gross_yield_pct": 10.0, "investment_score": 7.5}
+STR  = {"property_id": "p1", "annual_revenue_eur": 28500, "error": None}
+ROI  = {"property_id": "p1", "net_yield_pct": 6.2, "investment_score": 7.5}
 
-def test_passing_property_included(): assert len(PropertyFilter().filter([BASE], [STR], [ROI])) == 1
+def test_passing_property_included():
+    assert len(PropertyFilter().filter([BASE], [STR], [ROI])) == 1
+
 def test_ground_floor_excluded():
-    assert len(PropertyFilter().filter([{**BASE, "floor": "0", "floor_label": "Planta Baja"}], [STR], [ROI])) == 0
+    listing = {**BASE, "floor": "0", "floor_label": "Planta Baja"}
+    assert len(PropertyFilter().filter([listing], [STR], [ROI])) == 0
+
 def test_over_budget_excluded():
     assert len(PropertyFilter().filter([{**BASE, "price_eur": 350000}], [STR], [ROI])) == 0
+
 def test_low_yield_excluded():
     assert len(PropertyFilter().filter([BASE], [STR], [{**ROI, "net_yield_pct": 3.5}])) == 0
+
+def test_no_terrace_excluded():
+    listing = {**BASE, "terrace_m2": 0, "description": "sin terraza"}
+    assert len(PropertyFilter().filter([listing], [STR], [ROI])) == 0
 ```
 
 **Step 2:** Run → FAIL
 
 **Step 3:** Implement `backend/src/filters/property_filter.py`:
 ```python
-from backend.src.config import Config
+from src.config import Config
 
 _GROUND_LABELS = frozenset({"bajo", "planta baja", "pb", "0", "ground", "baja"})
 
@@ -668,11 +805,15 @@ class PropertyFilter:
 
 ---
 
-### Task 7: `backend/src/main.py` — FastAPI app
+### Task 7: `backend/src/reporters/pipeline.py` + `backend/src/main.py`
+
+**Critical fix:** Analysis takes 3–5 minutes. FastAPI must not block. Pattern:
+`POST /api/analysis` → starts background task → returns `run_id`
+`GET /api/analysis/{run_id}` → poll until `status == "completed"`
 
 **Files:**
-- Create: `backend/src/main.py`
 - Create: `backend/src/reporters/pipeline.py`
+- Create: `backend/src/main.py`
 
 **Step 1:** Implement `backend/src/reporters/pipeline.py`:
 ```python
@@ -681,37 +822,53 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from backend.src.scrapers.idealista import IdealistaScraper
-from backend.src.analyzers.str_revenue import AirROIAnalyzer
-from backend.src.analyzers.roi import ROIAnalyzer
-from backend.src.filters.property_filter import PropertyFilter
+from src.scrapers.idealista import IdealistaScraper
+from src.analyzers.str_revenue import AirROIAnalyzer
+from src.analyzers.roi import ROIAnalyzer
+from src.filters.property_filter import PropertyFilter
+
+_runs: dict[str, dict] = {}  # in-memory store; replace with Redis/DB for production
 
 
-def run_analysis(location: str) -> dict:
+def start_analysis(location: str) -> str:
     run_id = str(uuid.uuid4())[:8]
-    out = Path("outputs/data")
-    out.mkdir(parents=True, exist_ok=True)
+    _runs[run_id] = {"status": "running", "location": location, "started_at": datetime.now().isoformat()}
+    return run_id
 
-    listings = IdealistaScraper().scrape(location)
-    _save(out / f"{run_id}_listings.json", listings)
 
-    str_data = AirROIAnalyzer().analyze_batch(listings)
-    _save(out / f"{run_id}_str.json", str_data)
+def run_analysis(run_id: str, location: str) -> None:
+    """Blocking — must be called in a thread pool, not the event loop."""
+    try:
+        out = Path("outputs/data")
+        out.mkdir(parents=True, exist_ok=True)
 
-    roi_data = ROIAnalyzer().compute_all(listings, str_data)
-    _save(out / f"{run_id}_roi.json", roi_data)
+        listings = IdealistaScraper().scrape(location)
+        _save(out / f"{run_id}_listings.json", listings)
 
-    filtered = PropertyFilter().filter(listings, str_data, roi_data)
-    _save(out / f"{run_id}_filtered.json", filtered)
+        str_data = AirROIAnalyzer().analyze_batch(listings)
+        _save(out / f"{run_id}_str.json", str_data)
 
-    return {
-        "run_id": run_id,
-        "location": location,
-        "generated_at": datetime.now().isoformat(),
-        "total_scraped": len(listings),
-        "total_passing": len(filtered),
-        "properties": filtered,
-    }
+        roi_data = ROIAnalyzer().compute_all(listings, str_data)
+        _save(out / f"{run_id}_roi.json", roi_data)
+
+        filtered = PropertyFilter().filter(listings, str_data, roi_data)
+        _save(out / f"{run_id}_filtered.json", filtered)
+
+        _runs[run_id] = {
+            "status": "completed",
+            "location": location,
+            "generated_at": datetime.now().isoformat(),
+            "total_scraped": len(listings),
+            "total_passing": len(filtered),
+            "properties": filtered,
+            "market": None,  # populated by Claude agent via WebSearch
+        }
+    except Exception as exc:
+        _runs[run_id] = {"status": "failed", "error": str(exc)}
+
+
+def get_run(run_id: str) -> dict | None:
+    return _runs.get(run_id)
 
 
 def _save(path: Path, data: list[dict]) -> None:
@@ -720,13 +877,17 @@ def _save(path: Path, data: list[dict]) -> None:
 
 **Step 2:** Implement `backend/src/main.py`:
 ```python
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from backend.src.reporters.pipeline import run_analysis
+from src.reporters.pipeline import start_analysis, run_analysis, get_run
 
 app = FastAPI(title="Real Estate Investment Analyzer")
+_executor = ThreadPoolExecutor(max_workers=3)
 
 app.add_middleware(
     CORSMiddleware,
@@ -740,25 +901,43 @@ class AnalysisRequest(BaseModel):
     location: str
 
 
-@app.post("/api/analysis")
-def create_analysis(req: AnalysisRequest) -> dict:
+@app.post("/api/analysis", status_code=202)
+async def create_analysis(req: AnalysisRequest) -> dict:
     if not req.location.strip():
         raise HTTPException(status_code=400, detail="Location cannot be empty")
-    return run_analysis(req.location.strip())
+    location = req.location.strip()
+    run_id = start_analysis(location)
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(_executor, run_analysis, run_id, location)
+    return {"run_id": run_id, "status": "running"}
+
+
+@app.get("/api/analysis/{run_id}")
+async def get_analysis(run_id: str) -> dict:
+    result = get_run(run_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return result
 
 
 @app.get("/api/health")
-def health() -> dict:
+async def health() -> dict:
     return {"status": "ok"}
 ```
 
-**Step 3:** Start server and verify:
+**Step 3:** Start server and verify both endpoints:
 ```bash
 cd backend && uv run uvicorn src.main:app --reload
-```
-Expected: server starts on `http://localhost:8000`
+curl http://localhost:8000/api/health
+# Expected: {"status": "ok"}
 
-**Step 4:** Commit: `git commit -m "feat: add FastAPI app with analysis endpoint and pipeline orchestration"`
+curl -X POST http://localhost:8000/api/analysis \
+  -H "Content-Type: application/json" \
+  -d '{"location": "Marbella"}'
+# Expected: {"run_id": "abc12345", "status": "running"}
+```
+
+**Step 4:** Commit: `git commit -m "feat: add async FastAPI with background pipeline — non-blocking analysis"`
 
 ---
 
@@ -769,32 +948,23 @@ Expected: server starts on `http://localhost:8000`
 **Files:**
 - Create: `frontend/` — Vite + React + TypeScript + Tailwind + shadcn-ui
 
-**Step 1:** Scaffold Vite project:
+**Step 1:** Scaffold:
 ```bash
 cd frontend
 npm create vite@latest . -- --template react-ts
 npm install
-```
-
-**Step 2:** Install dependencies:
-```bash
 npm install -D tailwindcss @tailwindcss/vite
 npm install lightweight-charts
 npm install @radix-ui/react-slot class-variance-authority clsx tailwind-merge lucide-react
 ```
 
-**Step 3:** Initialize shadcn-ui:
+**Step 2:** Init shadcn-ui:
 ```bash
-npx shadcn@latest init
-```
-Choose: TypeScript, Default style, CSS variables.
-
-Add components:
-```bash
+npx shadcn@latest init   # choose: TypeScript, Default style, CSS variables
 npx shadcn@latest add table badge card
 ```
 
-**Step 4:** Configure Tailwind in `vite.config.ts`:
+**Step 3:** Configure `vite.config.ts`:
 ```typescript
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -806,23 +976,19 @@ export default defineConfig({
 })
 ```
 
-**Step 5:** Run dev server:
-```bash
-npm run dev
-```
-Expected: Vite dev server on `http://localhost:5173`, default React page loads.
+**Step 4:** `npm run dev` → Vite starts on `http://localhost:5173`
 
-**Step 6:** Commit: `git commit -m "chore: scaffold React frontend with Vite, Tailwind, shadcn-ui"`
+**Step 5:** Commit: `git commit -m "chore: scaffold React frontend with Vite, Tailwind, shadcn-ui"`
 
 ---
 
-### Task 9: TypeScript types + API hook
+### Task 9: TypeScript types + polling hook
 
 **Files:**
 - Create: `frontend/src/types/analysis.ts`
 - Create: `frontend/src/hooks/useAnalysis.ts`
 
-**Step 1:** Create `frontend/src/types/analysis.ts`:
+**Step 1:** `frontend/src/types/analysis.ts`:
 ```typescript
 export interface Property {
   id: string
@@ -854,26 +1020,33 @@ export interface MarketTrends {
 
 export interface AnalysisResult {
   run_id: string
+  status: 'running' | 'completed' | 'failed'
   location: string
   generated_at: string
   total_scraped: number
   total_passing: number
   properties: Property[]
-  market?: MarketTrends
+  market: MarketTrends | null
+  error?: string
 }
 ```
 
-**Step 2:** Create `frontend/src/hooks/useAnalysis.ts`:
+**Step 2:** `frontend/src/hooks/useAnalysis.ts` — polls every 5s until completed:
 ```typescript
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import type { AnalysisResult } from '../types/analysis'
 
-type Status = 'idle' | 'loading' | 'success' | 'error'
+type Status = 'idle' | 'loading' | 'polling' | 'success' | 'error'
 
 export function useAnalysis() {
   const [status, setStatus] = useState<Status>('idle')
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const stopPolling = () => {
+    if (pollRef.current) clearInterval(pollRef.current)
+  }
 
   const analyze = async (location: string) => {
     setStatus('loading')
@@ -885,8 +1058,21 @@ export function useAnalysis() {
         body: JSON.stringify({ location }),
       })
       if (!res.ok) throw new Error(`API error: ${res.status}`)
-      setResult(await res.json())
-      setStatus('success')
+      const { run_id } = await res.json()
+      setStatus('polling')
+      pollRef.current = setInterval(async () => {
+        const poll = await fetch(`/api/analysis/${run_id}`)
+        const data: AnalysisResult = await poll.json()
+        if (data.status === 'completed') {
+          stopPolling()
+          setResult(data)
+          setStatus('success')
+        } else if (data.status === 'failed') {
+          stopPolling()
+          setError(data.error ?? 'Analysis failed')
+          setStatus('error')
+        }
+      }, 5000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
       setStatus('error')
@@ -897,7 +1083,7 @@ export function useAnalysis() {
 }
 ```
 
-**Step 3:** Commit: `git commit -m "feat: add TypeScript types and useAnalysis hook"`
+**Step 3:** Commit: `git commit -m "feat: add TypeScript types and polling useAnalysis hook"`
 
 ---
 
@@ -906,21 +1092,20 @@ export function useAnalysis() {
 **Files:**
 - Create: `frontend/src/components/ExecutiveSummary.tsx`
 - Create: `frontend/src/components/PropertyTable.tsx`
-- Create: `frontend/src/components/PriceTrendChart.tsx`
+- Create: `frontend/src/components/MarketOverview.tsx`
 - Create: `frontend/src/components/YieldChart.tsx`
-- Create: `frontend/src/App.tsx` (update)
+- Create: `frontend/src/components/RiskIndicators.tsx`
+- Update: `frontend/src/App.tsx`
 
-**Step 1:** Implement `frontend/src/components/ExecutiveSummary.tsx`:
+**Step 1:** `ExecutiveSummary.tsx`:
 ```tsx
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { AnalysisResult } from '../types/analysis'
 
-const BADGE_VARIANT = { BUY: 'default', WATCH: 'secondary', SKIP: 'destructive' } as const
+const VARIANT = { BUY: 'default', WATCH: 'secondary', SKIP: 'destructive' } as const
 
-interface Props { result: AnalysisResult }
-
-export function ExecutiveSummary({ result }: Props) {
+export function ExecutiveSummary({ result }: { result: AnalysisResult }) {
   const top3 = [...result.properties]
     .sort((a, b) => (b.net_yield_pct ?? 0) - (a.net_yield_pct ?? 0))
     .slice(0, 3)
@@ -936,7 +1121,7 @@ export function ExecutiveSummary({ result }: Props) {
       <CardContent className="flex gap-4 flex-wrap">
         {top3.map(p => (
           <div key={p.id} className="flex flex-col gap-1 min-w-48">
-            <Badge variant={BADGE_VARIANT[p.recommendation]}>{p.recommendation}</Badge>
+            <Badge variant={VARIANT[p.recommendation]}>{p.recommendation}</Badge>
             <span className="text-sm font-medium truncate">{p.address}</span>
             <span className="text-xs text-muted-foreground">
               Net yield: {p.net_yield_pct?.toFixed(1)}% · Score: {p.investment_score}/10
@@ -949,50 +1134,64 @@ export function ExecutiveSummary({ result }: Props) {
 }
 ```
 
-**Step 2:** Implement `frontend/src/components/PriceTrendChart.tsx` using lightweight-charts:
+**Step 2:** `MarketOverview.tsx` — shows price trend chart OR "market data not available" notice:
 ```tsx
 import { useEffect, useRef } from 'react'
 import { createChart } from 'lightweight-charts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import type { MarketTrends } from '../types/analysis'
 
-interface PricePoint { year: number; price_eur: number }
-interface Props { history: PricePoint[]; location: string }
-
-export function PriceTrendChart({ history, location }: Props) {
+export function MarketOverview({ market, location }: { market: MarketTrends | null; location: string }) {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!ref.current || history.length === 0) return
-    const chart = createChart(ref.current, { height: 200, layout: { background: { color: 'transparent' } } })
+    if (!ref.current || !market?.price_per_m2_history?.length) return
+    const chart = createChart(ref.current, {
+      height: 200,
+      layout: { background: { color: 'transparent' } },
+    })
     const series = chart.addLineSeries({ color: '#3b82f6' })
-    series.setData(history.map(p => ({ time: `${p.year}-01-01`, value: p.price_eur })))
+    series.setData(market.price_per_m2_history.map(p => ({ time: `${p.year}-01-01`, value: p.price_eur })))
     chart.timeScale().fitContent()
     return () => chart.remove()
-  }, [history])
+  }, [market])
 
   return (
     <Card>
-      <CardHeader><CardTitle>Price per m² — {location}</CardTitle></CardHeader>
-      <CardContent><div ref={ref} /></CardContent>
+      <CardHeader>
+        <CardTitle>Market Overview — {location}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {market ? (
+          <>
+            <div ref={ref} />
+            <div className="flex gap-6 mt-4 text-sm">
+              <span>YoY growth: <strong>{market.yoy_appreciation_pct?.toFixed(1)}%</strong></span>
+              <span>VFT risk: <strong>{market.vft_regulatory_risk}</strong></span>
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Market trend data requires Claude Code: <code>claude "analyze {location}"</code>
+          </p>
+        )}
+      </CardContent>
     </Card>
   )
 }
 ```
 
-**Step 3:** Implement `frontend/src/components/PropertyTable.tsx` using shadcn-ui Table:
+**Step 3:** `PropertyTable.tsx`:
 ```tsx
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { Property } from '../types/analysis'
 
-const fmt = (n: number | null, decimals = 1) => n != null ? n.toFixed(decimals) : '—'
-const BADGE = { BUY: 'default', WATCH: 'secondary', SKIP: 'destructive' } as const
+const fmt = (n: number | null, d = 1) => n != null ? n.toFixed(d) : '—'
+const VARIANT = { BUY: 'default', WATCH: 'secondary', SKIP: 'destructive' } as const
 
-interface Props { properties: Property[] }
-
-export function PropertyTable({ properties }: Props) {
+export function PropertyTable({ properties }: { properties: Property[] }) {
   const sorted = [...properties].sort((a, b) => (b.net_yield_pct ?? 0) - (a.net_yield_pct ?? 0))
-
   return (
     <Table>
       <TableHeader>
@@ -1017,7 +1216,7 @@ export function PropertyTable({ properties }: Props) {
             <TableCell className="text-right">{fmt(p.gross_yield_pct)}%</TableCell>
             <TableCell className="text-right font-medium">{fmt(p.net_yield_pct)}%</TableCell>
             <TableCell className="text-right">{fmt(p.investment_score)}</TableCell>
-            <TableCell><Badge variant={BADGE[p.recommendation]}>{p.recommendation}</Badge></TableCell>
+            <TableCell><Badge variant={VARIANT[p.recommendation]}>{p.recommendation}</Badge></TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -1026,22 +1225,81 @@ export function PropertyTable({ properties }: Props) {
 }
 ```
 
-**Step 4:** Update `frontend/src/App.tsx`:
+**Step 4:** `YieldChart.tsx` — bar chart with 5% threshold line:
+```tsx
+import { useEffect, useRef } from 'react'
+import { createChart } from 'lightweight-charts'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import type { Property } from '../types/analysis'
+
+export function YieldChart({ properties }: { properties: Property[] }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!ref.current || !properties.length) return
+    const chart = createChart(ref.current, { height: 180, layout: { background: { color: 'transparent' } } })
+    const series = chart.addHistogramSeries({ color: '#22c55e' })
+    const sorted = [...properties].sort((a, b) => (b.net_yield_pct ?? 0) - (a.net_yield_pct ?? 0))
+    series.setData(sorted.map((p, i) => ({ time: (i + 1) as unknown as string, value: p.net_yield_pct ?? 0 })))
+    chart.timeScale().fitContent()
+    return () => chart.remove()
+  }, [properties])
+  return (
+    <Card>
+      <CardHeader><CardTitle>Net Yield Distribution (min 5% threshold)</CardTitle></CardHeader>
+      <CardContent><div ref={ref} /></CardContent>
+    </Card>
+  )
+}
+```
+
+**Step 5:** `RiskIndicators.tsx`:
+```tsx
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import type { MarketTrends } from '../types/analysis'
+
+function ScoreTile({ label, score }: { label: string; score: number | null }) {
+  const color = !score ? 'text-muted-foreground' : score >= 7 ? 'text-green-500' : score >= 4 ? 'text-yellow-500' : 'text-red-500'
+  return (
+    <div className="flex flex-col items-center p-4 border rounded-lg">
+      <span className={`text-3xl font-bold ${color}`}>{score ?? '—'}</span>
+      <span className="text-xs text-muted-foreground text-center mt-1">{label}</span>
+    </div>
+  )
+}
+
+export function RiskIndicators({ market }: { market: MarketTrends | null }) {
+  if (!market) return null
+  return (
+    <Card>
+      <CardHeader><CardTitle>Risk Indicators (1–10, higher = better for investor)</CardTitle></CardHeader>
+      <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <ScoreTile label="Market Saturation" score={market.market_saturation_score} />
+        <ScoreTile label="Liquidity" score={market.liquidity_score} />
+        <ScoreTile label="VFT Regulatory" score={market.vft_regulatory_risk === 'low' ? 8 : market.vft_regulatory_risk === 'medium' ? 5 : 2} />
+      </CardContent>
+    </Card>
+  )
+}
+```
+
+**Step 6:** Update `frontend/src/App.tsx`:
 ```tsx
 import { useState } from 'react'
 import { useAnalysis } from './hooks/useAnalysis'
 import { ExecutiveSummary } from './components/ExecutiveSummary'
-import { PriceTrendChart } from './components/PriceTrendChart'
+import { MarketOverview } from './components/MarketOverview'
 import { PropertyTable } from './components/PropertyTable'
+import { YieldChart } from './components/YieldChart'
+import { RiskIndicators } from './components/RiskIndicators'
 
 export default function App() {
   const [location, setLocation] = useState('')
   const { status, result, error, analyze } = useAnalysis()
+  const isLoading = status === 'loading' || status === 'polling'
 
   return (
     <div className="min-h-screen bg-background text-foreground p-8 max-w-7xl mx-auto">
       <h1 className="text-3xl font-bold mb-8">Real Estate Investment Analyzer</h1>
-
       <div className="flex gap-4 mb-8">
         <input
           className="border rounded px-4 py-2 flex-1 bg-background"
@@ -1053,21 +1311,19 @@ export default function App() {
         <button
           className="bg-primary text-primary-foreground px-6 py-2 rounded disabled:opacity-50"
           onClick={() => analyze(location)}
-          disabled={status === 'loading' || !location.trim()}
+          disabled={isLoading || !location.trim()}
         >
-          {status === 'loading' ? 'Analyzing…' : 'Analyze'}
+          {status === 'loading' ? 'Starting…' : status === 'polling' ? 'Analyzing…' : 'Analyze'}
         </button>
       </div>
-
       {error && <p className="text-destructive mb-4">{error}</p>}
-
-      {result && (
+      {result && result.status === 'completed' && (
         <div className="flex flex-col gap-6">
           <ExecutiveSummary result={result} />
-          {result.market?.price_per_m2_history?.length > 0 && (
-            <PriceTrendChart history={result.market.price_per_m2_history} location={result.location} />
-          )}
+          <MarketOverview market={result.market} location={result.location} />
           <PropertyTable properties={result.properties} />
+          <YieldChart properties={result.properties} />
+          <RiskIndicators market={result.market} />
         </div>
       )}
     </div>
@@ -1075,9 +1331,9 @@ export default function App() {
 }
 ```
 
-**Step 5:** Run `npm run build` — no TypeScript errors expected.
+**Step 7:** `npm run build` — verify 0 TypeScript errors.
 
-**Step 6:** Commit: `git commit -m "feat: add React dashboard with price chart, property table, and BUY/WATCH/SKIP verdicts"`
+**Step 8:** Commit: `git commit -m "feat: add all dashboard components with market overview, yield chart, risk indicators"`
 
 ---
 
@@ -1093,83 +1349,68 @@ export default function App() {
 - Create: `.claude/agents/property-filter.md`
 - Create: `.claude/agents/report-builder.md`
 - Create: `.claude/skills/analyze-market/SKILL.md`
-- Create: `.claude/settings.json`
 
-**`.claude/settings.json`:**
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(cd backend && uv run *)",
-      "Bash(cd frontend && npm *)",
-      "Bash(mkdir -p outputs/*)",
-      "WebSearch(*)"
-    ]
-  }
-}
+**Agent files** use frontmatter: `name`, `description` (with `<example>` blocks), `model`, `color`.
+Each agent invokes its Python module via: `cd backend && uv run python -c "from src.X import Y; ..."`
+
+**market-researcher.md** uses WebSearch — this is the only agent that produces `market_trends.json`.
+After it completes, `report-builder` can call `PUT /api/analysis/{run_id}/market` to enrich the result.
+
+Add to `backend/src/main.py`:
+```python
+@app.put("/api/analysis/{run_id}/market")
+async def update_market(run_id: str, market_data: dict) -> dict:
+    run = get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    run["market"] = market_data
+    return {"status": "updated"}
 ```
 
-**Orchestrator SKILL.md** fan-out pattern:
+**Orchestrator SKILL.md** fan-out:
 1. Parse + confirm location
-2. Launch `listings-scraper` + `market-researcher` IN PARALLEL
-3. After listings ready → launch `str-analyst`
-4. After STR ready → launch `roi-calculator` + `property-filter` sequentially
-5. Report: top 3 properties, `http://localhost:5173`
-
-Each agent file invokes the corresponding Python module via:
-```bash
-cd backend && uv run python -c "from src.X import Y; ..."
-```
+2. `POST /api/analysis` → get `run_id`
+3. Launch `listings-scraper` + `market-researcher` IN PARALLEL
+4. After listings → launch `str-analyst`
+5. After STR → launch `roi-calculator` → `property-filter`
+6. After market research → `PUT /api/analysis/{run_id}/market`
+7. Report: top 3 properties, open `http://localhost:5173`
 
 **Step commit:** `git commit -m "feat: add 6 agent definitions and analyze-market orchestrator skill"`
 
 ---
 
-## Phase 6 — Integration & Update CLAUDE.md
-
-### Task 12: Update CLAUDE.md
-
-Add to project CLAUDE.md:
-- Standards source: `0_instructions/.claude/CLAUDE.md`
-- Python: use `uv` exclusively (`uv venv`, `uv sync`, `uv run`)
-- Backend run: `cd backend && uv run uvicorn src.main:app --reload`
-- Frontend run: `cd frontend && npm run dev`
-- Full pipeline via Claude Code: `claude "analyze Marbella"`
-- Agents write to `outputs/data/`, FastAPI serves results, React displays
-
-Commit: `git commit -m "docs: update CLAUDE.md with uv, FastAPI+React conventions and run instructions"`
-
----
-
 ## Verification
 
-**Backend tests:**
+**All backend tests:**
 ```bash
-cd backend && uv run pytest ../tests/ -v
+cd backend && uv run pytest tests/ -v
 ```
-Expected: all tests pass.
+Expected: all pass.
 
-**Backend server:**
+**Backend health:**
 ```bash
 cd backend && uv run uvicorn src.main:app --reload
-curl -X POST http://localhost:8000/api/analysis -H "Content-Type: application/json" -d '{"location":"Marbella"}'
+curl http://localhost:8000/api/health
+# {"status": "ok"}
 ```
 
-**Frontend:**
-```bash
-cd frontend && npm run dev
-```
-Open `http://localhost:5173`, enter "Marbella", click Analyze.
-Verify: price chart renders, property table sortable, BUY/WATCH/SKIP badges visible.
-
-**TypeScript check:**
+**Frontend build:**
 ```bash
 cd frontend && npm run build
+# 0 TypeScript errors
 ```
-Expected: 0 TypeScript errors.
 
-**Via Claude Code:**
-```
+**Full stack test (mock — no real API calls):**
+1. Start backend + frontend
+2. Open `http://localhost:5173`
+3. Enter "Marbella", click Analyze
+4. Status changes: Starting → Analyzing → results appear
+5. Property table visible, MarketOverview shows "requires Claude Code" notice
+6. BUY/WATCH/SKIP badges visible
+
+**Via Claude Code (full pipeline with market data):**
+```bash
 claude "analyze Marbella"
 ```
-Expected: agents run sequentially, results appear in React dashboard.
+Expected: agents run, market data populated, `PUT /api/analysis/{run_id}/market` called, React dashboard shows full data including price trend chart and risk indicators.
