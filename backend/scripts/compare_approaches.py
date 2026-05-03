@@ -83,8 +83,43 @@ def print_results(results: list[ApproachResult]) -> None:
     print("=" * 70)
 
 
+def run_approach_a(url: str) -> ApproachResult:
+    """Exa.ai getContents → Claude CLI extraction (subscription auth)."""
+    import subprocess
+    from exa_py import Exa
+    from src.config import Config
+
+    cfg = Config()
+    t0 = time.time()
+    try:
+        exa = Exa(api_key=cfg.exa_api_key)
+        contents = exa.get_contents([url], text=True)
+        page_text = contents.results[0].text if contents.results else ""
+        if not page_text:
+            return ApproachResult("A: Exa+Claude", error="Exa returned empty text")
+
+        prompt = EXTRACTION_PROMPT.format(text=page_text[:8000])
+        result = subprocess.run(
+            ["claude", "-p", prompt],
+            capture_output=True, text=True, timeout=60
+        )
+        if result.returncode != 0:
+            return ApproachResult("A: Exa+Claude", elapsed_s=round(time.time() - t0, 1),
+                                   error=f"claude CLI error: {result.stderr[:80]}")
+        raw = result.stdout.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:-1])
+        data = json.loads(raw)
+
+        return ApproachResult("A: Exa+Claude", data=data,
+                               elapsed_s=round(time.time() - t0, 1), cost_usd=0.0)
+    except Exception as exc:
+        return ApproachResult("A: Exa+Claude", elapsed_s=round(time.time() - t0, 1), error=str(exc)[:80])
+
+
 if __name__ == "__main__":
     print(f"Testing URL: {TEST_URL}\n")
     results = []
-    # approaches added in Tasks 2, 3, 4
+    print("Running Approach A (Exa + Claude)...")
+    results.append(run_approach_a(TEST_URL))
     print_results(results)
