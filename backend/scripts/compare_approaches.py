@@ -231,7 +231,7 @@ def run_approach_d(url: str) -> ApproachResult:
     import subprocess
     from playwright.sync_api import sync_playwright
     try:
-        from playwright_stealth import stealth_sync
+        from playwright_stealth import Stealth
     except ImportError:
         return ApproachResult("D: PW Stealth", error="playwright-stealth not installed")
 
@@ -244,7 +244,7 @@ def run_approach_d(url: str) -> ApproachResult:
                            "AppleWebKit/537.36 (KHTML, like Gecko) "
                            "Chrome/124.0.0.0 Safari/537.36"
             )
-            stealth_sync(page)
+            Stealth().apply_stealth_sync(page)
             page.goto(url, wait_until="networkidle", timeout=30000)
             page_text = page.evaluate("document.body.innerText")
             browser.close()
