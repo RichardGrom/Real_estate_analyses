@@ -183,6 +183,49 @@ def run_approach_b(url: str) -> ApproachResult:
         return ApproachResult("B: Apify URL", elapsed_s=round(time.time() - t0, 1), error=str(exc)[:80])
 
 
+def run_approach_c(url: str) -> ApproachResult:
+    """Playwright headless Chrome → Claude CLI extraction (subscription auth)."""
+    import subprocess
+    from playwright.sync_api import sync_playwright
+
+    t0 = time.time()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                           "AppleWebKit/537.36 (KHTML, like Gecko) "
+                           "Chrome/124.0.0.0 Safari/537.36"
+            )
+            page.goto(url, wait_until="networkidle", timeout=30000)
+            page_text = page.evaluate("document.body.innerText")
+            browser.close()
+
+        print(f"  [debug] Playwright page_text length: {len(page_text) if page_text else 0} chars")
+
+        if not page_text or len(page_text) < 100:
+            return ApproachResult("C: Playwright", elapsed_s=round(time.time() - t0, 1),
+                                   error="Page text too short — likely blocked")
+
+        prompt = EXTRACTION_PROMPT.format(text=page_text[:8000])
+        result = subprocess.run(
+            ["/Users/richardgrom/.local/bin/claude", "-p", prompt],
+            capture_output=True, text=True, timeout=60
+        )
+        if result.returncode != 0:
+            return ApproachResult("C: Playwright", elapsed_s=round(time.time() - t0, 1),
+                                   error=f"claude CLI error: {result.stderr[:80]}")
+        raw = result.stdout.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:-1])
+        data = json.loads(raw)
+
+        return ApproachResult("C: Playwright", data=data,
+                               elapsed_s=round(time.time() - t0, 1), cost_usd=0.0)
+    except Exception as exc:
+        return ApproachResult("C: Playwright", elapsed_s=round(time.time() - t0, 1), error=str(exc)[:80])
+
+
 if __name__ == "__main__":
     print(f"Testing URL: {TEST_URL}\n")
     results = []
@@ -190,4 +233,6 @@ if __name__ == "__main__":
     results.append(run_approach_a(TEST_URL))
     print("Running Approach B (Apify startUrls)...")
     results.append(run_approach_b(TEST_URL))
+    print("Running Approach C (Playwright + Claude)...")
+    results.append(run_approach_c(TEST_URL))
     print_results(results)
