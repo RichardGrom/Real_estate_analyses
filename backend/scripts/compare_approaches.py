@@ -226,6 +226,124 @@ def run_approach_c(url: str) -> ApproachResult:
         return ApproachResult("C: Playwright", elapsed_s=round(time.time() - t0, 1), error=str(exc)[:80])
 
 
+def run_approach_d(url: str) -> ApproachResult:
+    """Playwright + playwright-stealth (bypass bot detection) → Claude CLI extraction."""
+    import subprocess
+    from playwright.sync_api import sync_playwright
+    try:
+        from playwright_stealth import stealth_sync
+    except ImportError:
+        return ApproachResult("D: PW Stealth", error="playwright-stealth not installed")
+
+    t0 = time.time()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                           "AppleWebKit/537.36 (KHTML, like Gecko) "
+                           "Chrome/124.0.0.0 Safari/537.36"
+            )
+            stealth_sync(page)
+            page.goto(url, wait_until="networkidle", timeout=30000)
+            page_text = page.evaluate("document.body.innerText")
+            browser.close()
+
+        if not page_text or len(page_text) < 100:
+            return ApproachResult("D: PW Stealth", elapsed_s=round(time.time() - t0, 1),
+                                   error="Page text too short — likely blocked")
+
+        prompt = EXTRACTION_PROMPT.format(text=page_text[:8000])
+        result = subprocess.run(
+            ["claude", "-p", prompt],
+            capture_output=True, text=True, timeout=60
+        )
+        if result.returncode != 0:
+            return ApproachResult("D: PW Stealth", elapsed_s=round(time.time() - t0, 1),
+                                   error=f"claude CLI error: {result.stderr[:80]}")
+        raw = result.stdout.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:-1])
+        data = json.loads(raw)
+
+        return ApproachResult("D: PW Stealth", data=data,
+                               elapsed_s=round(time.time() - t0, 1), cost_usd=0.0)
+    except Exception as exc:
+        return ApproachResult("D: PW Stealth", elapsed_s=round(time.time() - t0, 1), error=str(exc)[:80])
+
+
+def run_approach_e(url: str) -> ApproachResult:
+    """Apify apify/web-scraper (free generic actor) → Claude CLI extraction."""
+    import subprocess
+    import requests
+    from src.config import Config
+
+    cfg = Config()
+    t0 = time.time()
+    try:
+        session = requests.Session()
+        session.headers["Authorization"] = f"Bearer {cfg.apify_token}"
+
+        payload = {
+            "startUrls": [{"url": url}],
+            "pageFunction": """async function pageFunction(context) {
+                const { page } = context;
+                await page.waitForLoadState('networkidle');
+                return { text: await page.evaluate(() => document.body.innerText) };
+            }""",
+            "maxPagesPerCrawl": 1,
+        }
+        run_url = f"{cfg.APIFY_BASE_URL}/acts/apify~web-scraper/runs"
+        r = session.post(run_url, json=payload)
+        if not r.ok:
+            return ApproachResult("E: Apify Generic", elapsed_s=round(time.time() - t0, 1),
+                                   error=f"HTTP {r.status_code}: {r.text[:100]}")
+        run_id = r.json()["data"]["id"]
+
+        status_url = f"{cfg.APIFY_BASE_URL}/actor-runs/{run_id}"
+        terminal = {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}
+        while True:
+            status_r = session.get(status_url)
+            status = status_r.json()["data"]["status"]
+            if status in terminal:
+                break
+            time.sleep(5)
+
+        if status != "SUCCEEDED":
+            return ApproachResult("E: Apify Generic", elapsed_s=round(time.time() - t0, 1),
+                                   error=f"Run ended: {status}")
+
+        items_url = f"{cfg.APIFY_BASE_URL}/actor-runs/{run_id}/dataset/items"
+        items_r = session.get(items_url)
+        items = items_r.json()
+        if not items:
+            return ApproachResult("E: Apify Generic", elapsed_s=round(time.time() - t0, 1),
+                                   error="Empty dataset")
+
+        page_text = items[0].get("text", "")
+        if not page_text or len(page_text) < 100:
+            return ApproachResult("E: Apify Generic", elapsed_s=round(time.time() - t0, 1),
+                                   error="Page text too short — likely blocked")
+
+        prompt = EXTRACTION_PROMPT.format(text=page_text[:8000])
+        result = subprocess.run(
+            ["claude", "-p", prompt],
+            capture_output=True, text=True, timeout=60
+        )
+        if result.returncode != 0:
+            return ApproachResult("E: Apify Generic", elapsed_s=round(time.time() - t0, 1),
+                                   error=f"claude CLI error: {result.stderr[:80]}")
+        raw = result.stdout.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:-1])
+        data = json.loads(raw)
+
+        return ApproachResult("E: Apify Generic", data=data,
+                               elapsed_s=round(time.time() - t0, 1), cost_usd=0.0)
+    except Exception as exc:
+        return ApproachResult("E: Apify Generic", elapsed_s=round(time.time() - t0, 1), error=str(exc)[:80])
+
+
 if __name__ == "__main__":
     print(f"Testing URL: {TEST_URL}\n")
     results = []
@@ -235,4 +353,12 @@ if __name__ == "__main__":
     results.append(run_approach_b(TEST_URL))
     print("Running Approach C (Playwright + Claude)...")
     results.append(run_approach_c(TEST_URL))
+    print_results(results)
+
+    print("Running Approach D (Playwright Stealth)...")
+    results.append(run_approach_d(TEST_URL))
+    print_results(results)
+
+    print("Running Approach E (Apify Generic Scraper)...")
+    results.append(run_approach_e(TEST_URL))
     print_results(results)
