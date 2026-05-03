@@ -117,9 +117,77 @@ def run_approach_a(url: str) -> ApproachResult:
         return ApproachResult("A: Exa+Claude", elapsed_s=round(time.time() - t0, 1), error=str(exc)[:80])
 
 
+def run_approach_b(url: str) -> ApproachResult:
+    """Apify Idealista actor with startUrls parameter."""
+    import requests
+    from src.config import Config
+
+    cfg = Config()
+    t0 = time.time()
+    try:
+        session = requests.Session()
+        session.headers["Authorization"] = f"Bearer {cfg.apify_token}"
+        actor = cfg.APIFY_IDEALISTA_ACTOR_ID
+        payload = {
+            "startUrls": [{"url": url}],
+            "operation": "sale",
+            "country": "es",
+            "maxItems": 1,
+        }
+        run_url = f"{cfg.APIFY_BASE_URL}/acts/{actor}/runs"
+        r = session.post(run_url, json=payload)
+        if not r.ok:
+            return ApproachResult("B: Apify URL", elapsed_s=round(time.time() - t0, 1),
+                                   error=f"HTTP {r.status_code}: {r.text[:100]}")
+        run_id = r.json()["data"]["id"]
+
+        status_url = f"{cfg.APIFY_BASE_URL}/actor-runs/{run_id}"
+        terminal = {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}
+        while True:
+            status_r = session.get(status_url)
+            status = status_r.json()["data"]["status"]
+            if status in terminal:
+                break
+            time.sleep(5)
+
+        if status != "SUCCEEDED":
+            return ApproachResult("B: Apify URL", elapsed_s=round(time.time() - t0, 1),
+                                   error=f"Run ended: {status}")
+
+        items_url = f"{cfg.APIFY_BASE_URL}/actor-runs/{run_id}/dataset/items"
+        items_r = session.get(items_url)
+        items = items_r.json()
+        if not items:
+            return ApproachResult("B: Apify URL", elapsed_s=round(time.time() - t0, 1),
+                                   error="Empty dataset")
+
+        raw = items[0]
+        size = raw.get("size", 0)
+        data = {
+            "price_eur": raw.get("price"),
+            "size_m2": size,
+            "rooms": raw.get("rooms"),
+            "bathrooms": raw.get("bathrooms"),
+            "address": raw.get("address"),
+            "lat": raw.get("latitude"),
+            "lng": raw.get("longitude"),
+            "has_terrace": raw.get("features", {}).get("hasTerrace"),
+            "has_parking": raw.get("parkingSpace", {}).get("hasParkingSpace"),
+            "floor": raw.get("floor"),
+            "description": (raw.get("description") or "")[:300] or None,
+        }
+        cost = 0.000006
+        return ApproachResult("B: Apify URL", data=data,
+                               elapsed_s=round(time.time() - t0, 1), cost_usd=cost)
+    except Exception as exc:
+        return ApproachResult("B: Apify URL", elapsed_s=round(time.time() - t0, 1), error=str(exc)[:80])
+
+
 if __name__ == "__main__":
     print(f"Testing URL: {TEST_URL}\n")
     results = []
     print("Running Approach A (Exa + Claude)...")
     results.append(run_approach_a(TEST_URL))
+    print("Running Approach B (Apify startUrls)...")
+    results.append(run_approach_b(TEST_URL))
     print_results(results)
