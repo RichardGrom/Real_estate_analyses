@@ -4,8 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.models import AnalysisRequest
-from src.reporters.pipeline import start_run, run_pipeline, get_run, update_market
+from src.models import PropertyUrlRequest
+from src.reporters.pipeline import start_run, run_pipeline, get_run
 
 app = FastAPI(title="Real Estate Investment Advisor")
 _executor = ThreadPoolExecutor(max_workers=3)
@@ -19,11 +19,10 @@ app.add_middleware(
 
 
 @app.post("/api/analysis", status_code=202)
-async def create_analysis(req: AnalysisRequest) -> dict:
-    criteria = req.to_criteria()
-    run_id = start_run(criteria)
+async def create_analysis(req: PropertyUrlRequest) -> dict:
+    run_id = start_run(req.url)
     loop = asyncio.get_event_loop()
-    loop.run_in_executor(_executor, run_pipeline, run_id, criteria)
+    loop.run_in_executor(_executor, run_pipeline, run_id, req.url)
     return {"run_id": run_id, "status": "running"}
 
 
@@ -33,13 +32,6 @@ async def get_analysis(run_id: str) -> dict:
     if result is None:
         raise HTTPException(status_code=404, detail="Run not found")
     return result
-
-
-@app.put("/api/analysis/{run_id}/market")
-async def enrich_market(run_id: str, market_data: dict) -> dict:
-    if not update_market(run_id, market_data):
-        raise HTTPException(status_code=404, detail="Run not found")
-    return {"status": "updated"}
 
 
 @app.get("/api/health")
