@@ -4,7 +4,6 @@ import time
 import requests
 
 from src.config import Config
-from src.models import UserCriteria
 
 logger = logging.getLogger(__name__)
 
@@ -24,26 +23,27 @@ class IdealistaScraper:
         self._session = requests.Session()
         self._session.headers["Authorization"] = f"Bearer {self._cfg.apify_token}"
 
-    def scrape(self, criteria: UserCriteria, max_items: int = 200) -> list[dict]:
+    def scrape(self, location: str, budget_eur: int, min_size_m2: int = 70,
+               parking: bool = False, max_items: int = 200) -> list[dict]:
         payload = {
-            "location": criteria.location,
+            "location": location,
             "operation": "sale",
-            "propertyType": self._map_property_type(criteria.property_type),
+            "propertyType": "flat,house",
             "country": "es",
             "maxItems": max_items,
-            "minSize": criteria.min_size_m2,
-            "maxPrice": criteria.budget_eur,
-            "garage": criteria.parking,
+            "minSize": min_size_m2,
+            "maxPrice": budget_eur,
+            "garage": parking,
         }
         run_id = self._start_run(payload)
         self._await_run(run_id)
         return [self._normalize_listing(r) for r in self._fetch_items(run_id)]
 
-    def scrape_rentals(self, criteria: UserCriteria, max_items: int = 50) -> list[dict]:
+    def scrape_rentals_by_location(self, location: str, max_items: int = 50) -> list[dict]:
         payload = {
-            "location": criteria.location,
+            "location": location,
             "operation": "rent",
-            "propertyType": self._map_property_type(criteria.property_type),
+            "propertyType": "flat,house",
             "country": "es",
             "maxItems": max_items,
         }

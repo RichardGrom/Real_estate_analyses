@@ -1,6 +1,5 @@
 import logging
 
-from src.models import UserCriteria
 from src.scrapers.idealista import IdealistaScraper
 
 logger = logging.getLogger(__name__)
@@ -10,18 +9,15 @@ class LTRAnalyzer:
     def __init__(self) -> None:
         self._scraper = IdealistaScraper()
 
-    def analyze(self, criteria: UserCriteria) -> dict:
+    def analyze(self, location: str, size_m2: int) -> dict:
         try:
-            rentals = self._fetch_rentals(criteria)
+            rentals = self._scraper.scrape_rentals_by_location(location, max_items=50)
             if not rentals:
-                return self._error_result(criteria.location, "No rental listings found")
-            return self._compute(criteria.location, rentals)
+                return self._error_result(location, "No rental listings found")
+            return self._compute(location, rentals)
         except Exception as exc:
-            logger.error("LTR | location=%s error=%s", criteria.location, exc)
-            return self._error_result(criteria.location, str(exc))
-
-    def _fetch_rentals(self, criteria: UserCriteria) -> list[dict]:
-        return self._scraper.scrape_rentals(criteria, max_items=50)
+            logger.error("LTR | location=%s error=%s", location, exc)
+            return self._error_result(location, str(exc))
 
     def _compute(self, location: str, rentals: list[dict]) -> dict:
         prices = [r["price"] for r in rentals if r.get("price")]
