@@ -1,7 +1,7 @@
 # Link-Based Pipeline — Design
 
 **Date:** 2026-05-03
-**Status:** Approved
+**Status:** Implemented
 
 ## Goal
 
