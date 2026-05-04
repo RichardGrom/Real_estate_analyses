@@ -1,0 +1,29 @@
+warning: `VIRTUAL_ENV=/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+Testing URL: https://www.idealista.com/inmueble/111009537/
+
+Running Approach A (Exa + Claude)...
+Running Approach B (Apify startUrls)...
+Running Approach C (Playwright + Claude)...
+  [debug] Playwright page_text length: 0 chars
+
+======================================================================
+FIELD               A: Exa+Claude         B: Apify URL          C: Playwright         
+----------------------------------------------------------------------
+price_eur           ✗ null                ✗ null                ✗ null                
+size_m2             ✗ null                ✗ null                ✗ null                
+rooms               ✗ null                ✗ null                ✗ null                
+bathrooms           ✗ null                ✗ null                ✗ null                
+address             ✗ null                ✗ null                ✗ null                
+lat                 ✗ null                ✗ null                ✗ null                
+lng                 ✗ null                ✗ null                ✗ null                
+has_terrace         ✗ null                ✗ null                ✗ null                
+has_parking         ✗ null                ✗ null                ✗ null                
+floor               ✗ null                ✗ null                ✗ null                
+description         ✗ null                ✗ null                ✗ null                
+----------------------------------------------------------------------
+Completeness        0/11                 0/11                 0/11                 
+Time (s)            0.0s                   0.6s                   3.9s                   
+Est. cost           $0.0000                $0.0000                $0.0000                
+Error               Exa returned empty t  HTTP 403: {
+  "error  Page text too short   
+======================================================================
