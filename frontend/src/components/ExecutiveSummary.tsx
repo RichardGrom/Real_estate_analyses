@@ -1,39 +1,45 @@
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { AnalysisResult } from '../types/analysis'
 
-const VARIANT = { BUY: 'default', WATCH: 'secondary', SKIP: 'destructive' } as const
+function fmt(n: number | null | undefined, decimals = 1, suffix = '') {
+  if (n == null) return 'N/A'
+  return n.toFixed(decimals) + suffix
+}
 
 export function ExecutiveSummary({ result }: { result: AnalysisResult }) {
-  const top3 = [...result.properties]
-    .sort((a, b) => (b.investment_score ?? 0) - (a.investment_score ?? 0))
-    .slice(0, 3)
+  const p = result.property
+  if (!p) return null
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Results — {result.location}</CardTitle>
+        <CardTitle>{p.address}</CardTitle>
         <p className="text-sm text-muted-foreground">
-          {result.total_passing} of {result.total_scraped} properties match criteria
-          · Budget €{result.criteria.budget_eur.toLocaleString()}
-          {result.criteria.min_net_yield_pct && ` · Yield ≥${result.criteria.min_net_yield_pct}%`}
-          {result.criteria.min_capital_growth_pct && ` · Growth ≥${result.criteria.min_capital_growth_pct}%/yr`}
+          {p.size_m2} m² · {p.rooms} bed · {p.bathrooms} bath
+          {p.floor ? ` · ${p.floor}` : ''}
+          {p.has_terrace ? ' · Terrace' : ''}
+          {p.has_parking ? ' · Parking' : ''}
         </p>
       </CardHeader>
-      <CardContent className="flex gap-4 flex-wrap">
-        {top3.map(p => (
-          <div key={p.id} className="flex flex-col gap-1 min-w-52">
-            <Badge variant={VARIANT[p.verdict]}>{p.verdict}</Badge>
-            <span className="text-sm font-medium truncate">{p.address}</span>
-            <span className="text-xs text-muted-foreground">
-              €{p.price_eur.toLocaleString()}
-              · STR {p.str_net_yield_pct?.toFixed(1) ?? 'N/A'}%
-              · LTR {p.ltr_net_yield_pct?.toFixed(1) ?? 'N/A'}%
-              · Score {p.investment_score}/10
-            </span>
-          </div>
-        ))}
+      <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Metric label="Price" value={`€${p.price_eur.toLocaleString()}`} />
+        <Metric label="STR Net Yield" value={fmt(p.str_net_yield_pct, 1, '%')} highlight />
+        <Metric label="LTR Net Yield" value={fmt(p.ltr_net_yield_pct, 1, '%')} highlight />
+        <Metric label="Preferred" value={p.preferred_rental_type ?? 'N/A'} />
+        <Metric label="STR Revenue/yr" value={p.str_annual_revenue_eur ? `€${p.str_annual_revenue_eur.toLocaleString()}` : 'N/A'} />
+        <Metric label="LTR Rent/mo" value={p.ltr_monthly_rent_eur ? `€${p.ltr_monthly_rent_eur.toLocaleString()}` : 'N/A'} />
+        <Metric label="Capital Growth" value={fmt(p.capital_growth_pct, 1, '%/yr')} />
+        <Metric label="Investment Score" value={p.investment_score != null ? `${p.investment_score}/10` : 'N/A'} highlight />
       </CardContent>
     </Card>
+  )
+}
+
+function Metric({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={`text-lg font-semibold ${highlight ? 'text-primary' : ''}`}>{value}</span>
+    </div>
   )
 }

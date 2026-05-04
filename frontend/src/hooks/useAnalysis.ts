@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import type { AnalysisRequest, AnalysisResult } from '../types/analysis'
+import type { PropertyUrlRequest, AnalysisResult } from '../types/analysis'
 
 type Status = 'idle' | 'loading' | 'polling' | 'success' | 'error'
 
@@ -13,7 +13,7 @@ export function useAnalysis() {
     if (pollRef.current) clearInterval(pollRef.current)
   }
 
-  const analyze = async (req: AnalysisRequest) => {
+  const analyze = async (req: PropertyUrlRequest) => {
     setStatus('loading')
     setError(null)
     try {

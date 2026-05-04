@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { createChart, LineSeries } from 'lightweight-charts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import type { Property } from '../types/analysis'
+import type { PropertyResult } from '../types/analysis'
 
-export function YieldChart({ properties }: { properties: Property[] }) {
+export function YieldChart({ properties }: { properties: PropertyResult[] }) {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
