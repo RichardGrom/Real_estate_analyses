@@ -12,3 +12,4 @@ outputs/data/*.json
 Thumbs.db
 .worktrees/
 0_instructions/
+.claude/
