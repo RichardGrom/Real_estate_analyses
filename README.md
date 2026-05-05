@@ -169,6 +169,8 @@ Real_estate_analyses/
 
 A real analysis of a 2-bedroom apartment in Barcelona's Eixample district (€350,000) produced the following result. The full JSON is in [`docs/example/example_analysis.json`](docs/example/example_analysis.json).
 
+![Dashboard screenshot](docs/example/demo-screenshot.png)
+
 ### Property extracted from Fotocasa
 
 | Field | Value |
