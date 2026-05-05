@@ -45,11 +45,11 @@ def test_scrape_rentals_returns_listings(mock_run, mock_playwright):
 
 @patch("src.scrapers.fotocasa_scraper.sync_playwright")
 @patch("src.scrapers.fotocasa_scraper.subprocess.run")
-def test_scrape_raises_when_blocked(mock_run, mock_playwright):
-    short_text = "Access denied"  # < 200 chars
+def test_scrape_raises_when_all_urls_blocked(mock_run, mock_playwright):
+    short_text = "Access denied"  # < 200 chars — all 3 candidate URLs return this
     mock_playwright.return_value = _make_playwright_mock(short_text)
 
-    with pytest.raises(RuntimeError, match="blocked"):
+    with pytest.raises(RuntimeError, match="blocked all URL candidates"):
         FotocasaScraper().scrape_rentals("Valencia")
 
 
@@ -63,9 +63,11 @@ def test_scrape_returns_empty_when_no_listings_parsed(mock_run, mock_playwright)
     assert result == []
 
 
-def test_build_url_normalizes_location():
+def test_candidate_urls_covers_all_formats():
     scraper = FotocasaScraper()
-    assert scraper._build_url("Valencia") == \
-        "https://www.fotocasa.es/es/alquiler/casas/valencia-capital/todas-las-zonas/l"
-    assert scraper._build_url("Las Palmas") == \
-        "https://www.fotocasa.es/es/alquiler/casas/las-palmas-capital/todas-las-zonas/l"
+    urls = scraper._candidate_urls("Estepona")
+    assert "https://www.fotocasa.es/es/alquiler/casas/estepona-capital/todas-las-zonas/l" in urls
+    assert "https://www.fotocasa.es/es/alquiler/casas/estepona/todas-las-zonas/l" in urls
+    assert "https://www.fotocasa.es/es/alquiler/casas/estepona-municipio/todas-las-zonas/l" in urls
+    urls_palmas = scraper._candidate_urls("Las Palmas")
+    assert "https://www.fotocasa.es/es/alquiler/casas/las-palmas-capital/todas-las-zonas/l" in urls_palmas

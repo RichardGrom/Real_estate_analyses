@@ -31,16 +31,22 @@ TEXT:
 
 class FotocasaScraper:
     def scrape_rentals(self, location: str, max_items: int = 30) -> list[dict]:
-        url = self._build_url(location)
-        logger.info("FotocasaScraper | url=%s", url)
-        page_text = self._fetch_page(url)
-        if len(page_text) < 200:
-            raise RuntimeError(f"Fotocasa blocked (page text: {len(page_text)} chars)")
-        return self._extract_listings(page_text)[:max_items]
+        for url in self._candidate_urls(location):
+            logger.info("FotocasaScraper | trying url=%s", url)
+            page_text = self._fetch_page(url)
+            if len(page_text) >= 200:
+                return self._extract_listings(page_text)[:max_items]
+            logger.info("FotocasaScraper | blocked or empty, trying next url")
+        raise RuntimeError(f"Fotocasa blocked all URL candidates for location={location!r}")
 
-    def _build_url(self, location: str) -> str:
+    def _candidate_urls(self, location: str) -> list[str]:
         slug = location.lower().strip().replace(" ", "-").replace(",", "")
-        return f"https://www.fotocasa.es/es/alquiler/casas/{slug}-capital/todas-las-zonas/l"
+        base = "https://www.fotocasa.es/es/alquiler/casas"
+        return [
+            f"{base}/{slug}-capital/todas-las-zonas/l",
+            f"{base}/{slug}/todas-las-zonas/l",
+            f"{base}/{slug}-municipio/todas-las-zonas/l",
+        ]
 
     def _fetch_page(self, url: str) -> str:
         with sync_playwright() as p:
