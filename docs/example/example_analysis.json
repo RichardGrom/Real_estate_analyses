@@ -1,0 +1,42 @@
+{
+  "status": "completed",
+  "url": "https://www.fotocasa.es/es/comprar/piso/barcelona/eixample/185432101/d",
+  "started_at": "2026-05-03T14:22:11.043Z",
+  "generated_at": "2026-05-03T14:22:38.817Z",
+  "property": {
+    "id": "a3f91c",
+    "url": "https://www.fotocasa.es/es/comprar/piso/barcelona/eixample/185432101/d",
+    "price_eur": 350000,
+    "size_m2": 75,
+    "rooms": 2,
+    "bathrooms": 1,
+    "address": "Carrer del Consell de Cent, 312, Eixample, Barcelona, Cataluña",
+    "lat": 41.3917,
+    "lng": 2.1635,
+    "has_terrace": true,
+    "has_parking": false,
+    "floor": "3º",
+    "description": "Luminoso piso en el corazón del Eixample. Techos altos, suelos de parquet, cocina reformada. Muy cerca de Passeig de Gràcia.",
+    "property_id": "a3f91c",
+    "purchase_price": 350000,
+    "acquisition_cost": 385000.0,
+    "str_annual_revenue_eur": 28140,
+    "str_gross_yield_pct": 8.04,
+    "str_net_yield_pct": 4.71,
+    "ltr_monthly_rent_eur": 1650,
+    "ltr_annual_revenue_eur": 19800.0,
+    "ltr_net_yield_pct": 3.63,
+    "preferred_rental_type": "STR",
+    "community_fees_yr": 1800,
+    "ibi_yr": 1050.0,
+    "capital_growth_pct": 8.2,
+    "investment_score": 6.7
+  },
+  "market": {
+    "yoy_appreciation_pct": 8.2,
+    "ccaa": "Cataluña",
+    "data_year": 2024,
+    "ltr_avg_rent_eur": 1650,
+    "ltr_comparables": 14
+  }
+}

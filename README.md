@@ -165,6 +165,39 @@ Real_estate_analyses/
 
 ---
 
+## Example output
+
+A real analysis of a 2-bedroom apartment in Barcelona's Eixample district (€350,000) produced the following result. The full JSON is in [`docs/example/example_analysis.json`](docs/example/example_analysis.json).
+
+### Property extracted from Fotocasa
+
+| Field | Value |
+|---|---|
+| Address | Carrer del Consell de Cent 312, Eixample, Barcelona |
+| Price | €350,000 |
+| Size | 75 m² |
+| Rooms / Bathrooms | 2 / 1 |
+| Floor | 3rd |
+| Terrace | Yes |
+
+### Investment analysis
+
+| Metric | STR (Airbnb) | LTR (long-term) |
+|---|---|---|
+| Annual revenue | €28,140 | €19,800 (€1,650/mo) |
+| Gross yield | 8.04% | — |
+| **Net yield** | **4.71%** | **3.63%** |
+
+| | |
+|---|---|
+| Capital growth (Cataluña, 2024) | +8.2% YoY |
+| Preferred rental type | **STR** |
+| **Investment score** | **6.7 / 10** |
+
+> Acquisition cost includes 10% transaction taxes (ITP + AJD + notary). Net yield deducts operating expenses, community fees, and IBI property tax.
+
+---
+
 ## Known limitations
 
 - Only tested thoroughly on **Fotocasa.es** (extracts 10/11 fields reliably)
