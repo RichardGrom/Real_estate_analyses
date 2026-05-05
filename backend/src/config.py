@@ -15,7 +15,7 @@ class Config:
     INE_IPV_TABLE_URL: str = "https://servicios.ine.es/wstempus/js/es/DATOS_TABLA/49300?tip=AM"
 
     def __init__(self) -> None:
-        self.apify_token: str = self._require("APIFY_TOKEN")
+        self.apify_token: str = os.getenv("APIFY_TOKEN", "")
         self.airroi_api_key: str = self._require("AIRROI_API_KEY")
         self.exa_api_key: str = self._require("EXA_API_KEY")
 

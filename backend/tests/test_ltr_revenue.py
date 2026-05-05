@@ -1,45 +1,45 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-RENTAL_LISTINGS = [
-    {"price": 1800, "size": 90},
-    {"price": 2000, "size": 100},
-    {"price": 1600, "size": 80},
-]
+MOCK_ESTIMATE = {
+    "avg_monthly_rent_eur": 1800,
+    "rent_per_m2_month": 20.0,
+    "confidence": "high",
+    "notes": "Marbella prime location estimate",
+}
 
 
-@patch("src.analyzers.ltr_revenue.IdealistaScraper")
-def test_ltr_analyze_computes_avg_rent(mock_scraper_cls):
-    mock_scraper_cls.return_value.scrape_rentals_by_location.return_value = RENTAL_LISTINGS
+@patch("src.analyzers.ltr_revenue.ClaudeLTREstimator")
+def test_ltr_analyze_computes_avg_rent(mock_estimator_cls):
+    mock_estimator_cls.return_value.estimate.return_value = MOCK_ESTIMATE
     from src.analyzers.ltr_revenue import LTRAnalyzer
     result = LTRAnalyzer().analyze("Marbella", 95)
-    assert result["avg_monthly_rent_eur"] == pytest.approx(1800.0)
-    assert result["comparables_count"] == 3
+    assert result["avg_monthly_rent_eur"] == 1800
     assert result["error"] is None
+    assert result["data_source"] == "Claude AI market estimate"
 
 
-@patch("src.analyzers.ltr_revenue.IdealistaScraper")
-def test_ltr_analyze_empty_returns_error(mock_scraper_cls):
-    mock_scraper_cls.return_value.scrape_rentals_by_location.return_value = []
+@patch("src.analyzers.ltr_revenue.ClaudeLTREstimator")
+def test_ltr_analyze_returns_rent_per_m2(mock_estimator_cls):
+    mock_estimator_cls.return_value.estimate.return_value = MOCK_ESTIMATE
+    from src.analyzers.ltr_revenue import LTRAnalyzer
+    result = LTRAnalyzer().analyze("Marbella", 95)
+    assert result["rent_per_m2_month"] == pytest.approx(20.0)
+    assert result["confidence"] == "high"
+
+
+@patch("src.analyzers.ltr_revenue.ClaudeLTREstimator")
+def test_ltr_analyze_handles_exception(mock_estimator_cls):
+    mock_estimator_cls.return_value.estimate.side_effect = RuntimeError("claude -p failed")
     from src.analyzers.ltr_revenue import LTRAnalyzer
     result = LTRAnalyzer().analyze("Marbella", 95)
     assert result["avg_monthly_rent_eur"] is None
-    assert result["error"] is not None
+    assert "claude -p failed" in result["error"]
 
 
-@patch("src.analyzers.ltr_revenue.IdealistaScraper")
-def test_ltr_analyze_computes_rent_per_m2(mock_scraper_cls):
-    mock_scraper_cls.return_value.scrape_rentals_by_location.return_value = RENTAL_LISTINGS
+@patch("src.analyzers.ltr_revenue.ClaudeLTREstimator")
+def test_ltr_analyze_passes_size_to_estimator(mock_estimator_cls):
+    mock_estimator_cls.return_value.estimate.return_value = MOCK_ESTIMATE
     from src.analyzers.ltr_revenue import LTRAnalyzer
-    result = LTRAnalyzer().analyze("Marbella", 95)
-    expected = (1800 / 90 + 2000 / 100 + 1600 / 80) / 3
-    assert result["rent_per_m2_month"] == pytest.approx(expected, abs=0.1)
-
-
-@patch("src.analyzers.ltr_revenue.IdealistaScraper")
-def test_ltr_analyze_handles_exception(mock_scraper_cls):
-    mock_scraper_cls.return_value.scrape_rentals_by_location.side_effect = Exception("timeout")
-    from src.analyzers.ltr_revenue import LTRAnalyzer
-    result = LTRAnalyzer().analyze("Marbella", 95)
-    assert result["avg_monthly_rent_eur"] is None
-    assert "timeout" in result["error"]
+    LTRAnalyzer().analyze("Estepona", 74)
+    mock_estimator_cls.return_value.estimate.assert_called_once_with("Estepona", 74)

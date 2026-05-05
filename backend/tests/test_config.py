@@ -12,13 +12,13 @@ def test_config_loads(monkeypatch):
     assert cfg.exa_api_key == "test_exa"
 
 
-def test_config_raises_on_missing_apify(monkeypatch):
+def test_config_apify_optional(monkeypatch):
     monkeypatch.delenv("APIFY_TOKEN", raising=False)
     monkeypatch.setenv("AIRROI_API_KEY", "x")
     monkeypatch.setenv("EXA_API_KEY", "x")
     from src.config import Config
-    with pytest.raises(ValueError, match="APIFY_TOKEN"):
-        Config()
+    cfg = Config()
+    assert cfg.apify_token == ""
 
 
 def test_config_raises_on_missing_exa(monkeypatch):
