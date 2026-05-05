@@ -11,3 +11,4 @@ outputs/data/*.json
 .DS_Store
 Thumbs.db
 .worktrees/
+0_instructions/
