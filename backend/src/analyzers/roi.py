@@ -12,6 +12,8 @@ class ROIAnalyzer:
                          ltr_data: dict | None,
                          capital_growth_pct: float | None = None) -> dict:
         price = listing["price_eur"]
+        if price is None:
+            raise ValueError("price_eur is missing from listing — cannot compute ROI")
         acq = round(price * (1 + self._cfg.TRANSACTION_COST_PCT), 2)
         str_revenue = str_est.get("annual_revenue_eur")
         ltr_monthly = ltr_data.get("avg_monthly_rent_eur") if ltr_data else None
@@ -33,6 +35,7 @@ class ROIAnalyzer:
             "str_gross_yield_pct": round((str_revenue / price) * 100, 2) if str_revenue else None,
             "str_net_yield_pct": round(str_net_yield, 2) if str_net_yield is not None else None,
             "ltr_monthly_rent_eur": ltr_monthly,
+            "ltr_annual_revenue_eur": round(ltr_monthly * 12, 2) if ltr_monthly is not None else None,
             "ltr_net_yield_pct": round(ltr_net_yield, 2) if ltr_net_yield is not None else None,
             "preferred_rental_type": preferred,
             "community_fees_yr": community,

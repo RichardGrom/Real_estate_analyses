@@ -42,7 +42,7 @@ class CapitalGrowthAnalyzer:
     def _extract_yoy(self, data: list[dict], ccaa: str) -> float | None:
         for series in data:
             name = series.get("Nombre", "")
-            if ccaa in name and "Tasa" in name and series.get("Data"):
+            if ccaa in name and "Variación anual" in name and "General" in name and series.get("Data"):
                 latest = max(series["Data"], key=lambda d: d.get("Anyo", 0))
                 return latest.get("Valor")
         return None
@@ -50,7 +50,7 @@ class CapitalGrowthAnalyzer:
     def _extract_year(self, data: list[dict], ccaa: str) -> int | None:
         for series in data:
             name = series.get("Nombre", "")
-            if ccaa in name and "Tasa" in name and series.get("Data"):
+            if ccaa in name and "Variación anual" in name and "General" in name and series.get("Data"):
                 latest = max(series["Data"], key=lambda d: d.get("Anyo", 0))
                 return latest.get("Anyo")
         return None

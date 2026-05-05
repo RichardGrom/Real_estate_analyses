@@ -1,10 +1,14 @@
 import json
+import logging
+import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
 from src.scrapers.link_scraper import LinkScraper
+
+logger = logging.getLogger(__name__)
 from src.analyzers.str_revenue import AirROIAnalyzer
 from src.analyzers.ltr_revenue import LTRAnalyzer
 from src.analyzers.capital_growth import CapitalGrowthAnalyzer
@@ -26,13 +30,13 @@ def start_run(url: str) -> str:
 def run_pipeline(run_id: str, url: str) -> None:
     """Blocking — must run in thread pool, not event loop."""
     try:
-        out = Path("outputs/data")
+        out = Path(__file__).parent.parent.parent / "outputs" / "data"
         out.mkdir(parents=True, exist_ok=True)
 
         listing = LinkScraper().scrape(url)
         _save(out / f"{run_id}_listing.json", listing)
 
-        location = _extract_city(listing.get("address", ""))
+        location = _extract_city(listing.get("address") or "")
 
         with ThreadPoolExecutor(max_workers=3) as pool:
             str_future = pool.submit(AirROIAnalyzer().analyze_batch, [listing])
@@ -61,7 +65,9 @@ def run_pipeline(run_id: str, url: str) -> None:
             },
         })
     except Exception as exc:
-        _runs[run_id].update({"status": "failed", "error": str(exc)})
+        tb = traceback.format_exc()
+        logger.error("Pipeline failed: %s\n%s", exc, tb)
+        _runs[run_id].update({"status": "failed", "error": str(exc), "traceback": tb})
 
 
 def get_run(run_id: str) -> dict | None:
@@ -69,9 +75,9 @@ def get_run(run_id: str) -> dict | None:
 
 
 def _extract_city(address: str) -> str:
-    """Best-effort: take second-to-last comma-separated part as city."""
+    """Extract city from address. 4+ parts: skip province (use [-2]). 3 parts: city is last."""
     parts = [p.strip() for p in address.split(",") if p.strip()]
-    if len(parts) >= 2:
+    if len(parts) >= 4:
         return parts[-2]
     return parts[-1] if parts else address
 

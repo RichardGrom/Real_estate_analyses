@@ -25,7 +25,8 @@ class ClaudeLTREstimator:
         prompt = ESTIMATION_PROMPT.format(location=location, size_m2=size_m2)
         result = subprocess.run(
             ["claude", "-p", prompt],
-            capture_output=True, text=True, timeout=60
+            capture_output=True, text=True, timeout=60,
+            stdin=subprocess.DEVNULL,
         )
         if result.returncode != 0:
             raise RuntimeError(f"claude -p failed: {result.stderr[:200]}")

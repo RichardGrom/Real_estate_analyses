@@ -21,6 +21,7 @@ export interface PropertyResult {
   str_net_yield_pct: number | null
   occupancy_rate_pct: number | null
   ltr_monthly_rent_eur: number | null
+  ltr_annual_revenue_eur: number | null
   ltr_net_yield_pct: number | null
   preferred_rental_type: 'STR' | 'LTR' | null
   capital_growth_pct: number | null

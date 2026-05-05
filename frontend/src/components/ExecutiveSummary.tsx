@@ -21,15 +21,20 @@ export function ExecutiveSummary({ result }: { result: AnalysisResult }) {
           {p.has_parking ? ' · Parking' : ''}
         </p>
       </CardHeader>
-      <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Metric label="Price" value={`€${p.price_eur.toLocaleString()}`} />
-        <Metric label="STR Net Yield" value={fmt(p.str_net_yield_pct, 1, '%')} highlight />
-        <Metric label="LTR Net Yield" value={fmt(p.ltr_net_yield_pct, 1, '%')} highlight />
-        <Metric label="Preferred" value={p.preferred_rental_type ?? 'N/A'} />
-        <Metric label="STR Revenue/yr" value={p.str_annual_revenue_eur ? `€${p.str_annual_revenue_eur.toLocaleString()}` : 'N/A'} />
-        <Metric label="LTR Rent/mo" value={p.ltr_monthly_rent_eur ? `€${p.ltr_monthly_rent_eur.toLocaleString()}` : 'N/A'} />
-        <Metric label="Capital Growth" value={fmt(p.capital_growth_pct, 1, '%/yr')} />
-        <Metric label="Investment Score" value={p.investment_score != null ? `${p.investment_score}/10` : 'N/A'} highlight />
+      <CardContent className="flex flex-col gap-6">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <Metric label="Price" value={`€${p.price_eur.toLocaleString()}`} />
+          <Metric label="STR Net Yield" value={fmt(p.str_net_yield_pct, 1, '%')} highlight />
+          <Metric label="LTR Net Yield" value={fmt(p.ltr_net_yield_pct, 1, '%')} highlight />
+          <Metric label="Preferred" value={p.preferred_rental_type ?? 'N/A'} />
+        </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <Metric label="STR Revenue/yr" value={p.str_annual_revenue_eur ? `€${p.str_annual_revenue_eur.toLocaleString()}` : 'N/A'} />
+          <Metric label="LTR Revenue/yr" value={p.ltr_annual_revenue_eur ? `€${p.ltr_annual_revenue_eur.toLocaleString()}` : 'N/A'} />
+          <Metric label="LTR Rent/mo" value={p.ltr_monthly_rent_eur ? `€${p.ltr_monthly_rent_eur.toLocaleString()}` : 'N/A'} />
+          <Metric label="Capital Growth" value={fmt(p.capital_growth_pct, 1, '%/yr')} />
+          <Metric label="Investment Score" value={p.investment_score != null ? `${p.investment_score}/10` : 'N/A'} highlight />
+        </div>
       </CardContent>
     </Card>
   )

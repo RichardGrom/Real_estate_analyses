@@ -114,7 +114,8 @@ class LinkScraper:
         prompt = EXTRACTION_PROMPT.format(text=page_text[:8000])
         result = subprocess.run(
             ["claude", "-p", prompt],
-            capture_output=True, text=True, timeout=60
+            capture_output=True, text=True, timeout=60,
+            stdin=subprocess.DEVNULL,
         )
         if result.returncode != 0:
             raise ScraperError(f"extraction_failed: {result.stderr[:200]}")
@@ -128,18 +129,23 @@ class LinkScraper:
             raise ScraperError("extraction_failed: could not parse JSON from claude output")
 
     def _geocode(self, address: str) -> tuple[float | None, float | None]:
-        try:
-            encoded = urllib.parse.quote(address)
-            req = urllib.request.Request(
-                f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1",
-                headers={"User-Agent": "re-investment-advisor/1.0"}
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read())
-            if data:
-                return round(float(data[0]["lat"]), 6), round(float(data[0]["lon"]), 6)
-        except Exception as exc:
-            logger.warning("Nominatim geocoding failed: %s", exc)
+        candidates = [address]
+        parts = [p.strip() for p in address.split(",") if p.strip()]
+        if len(parts) > 1:
+            candidates.append(parts[-1])
+        for query in candidates:
+            try:
+                encoded = urllib.parse.quote(query)
+                req = urllib.request.Request(
+                    f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1",
+                    headers={"User-Agent": "re-investment-advisor/1.0"}
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = json.loads(resp.read())
+                if data:
+                    return round(float(data[0]["lat"]), 6), round(float(data[0]["lon"]), 6)
+            except Exception as exc:
+                logger.warning("Nominatim geocoding failed for %r: %s", query, exc)
         return None, None
 
     def _listing_id(self, url: str) -> str:
